@@ -1,0 +1,967 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VLUI — CRI Benchmark Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+/* ── Reset & base ───────────────────────────────────────────── */
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --bg:#0f1117;
+  --surface:#1a1d27;
+  --surface2:#22263a;
+  --border:#2e334d;
+  --text:#e2e8f0;
+  --muted:#64748b;
+  --rtree:#f87171;
+  --lchi:#fb923c;
+  --green:#4ade80;
+  --blue:#60a5fa;
+  --radius:12px;
+}
+html{font-size:14px;}
+body{
+  font-family:'Segoe UI',system-ui,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  min-height:100vh;
+  padding:20px;
+}
+.container{max-width:1600px;margin:0 auto;display:flex;flex-direction:column;gap:20px;}
+
+/* Header */
+header{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:16px 24px;
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+}
+.vlui-badge{
+  font-size:26px;font-weight:900;letter-spacing:-1px;
+  background:linear-gradient(135deg,#3b82f6,#8b5cf6,#f87171);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;
+  line-height:1;padding-right:4px;
+  border-right:2px solid var(--border);
+  margin-right:4px;
+}
+.header-icon{font-size:22px;}
+header h1{font-size:17px;font-weight:700;}
+header p{font-size:11px;color:var(--muted);margin-top:3px;}
+.header-right{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+
+/* Info strip */
+.info-strip{
+  display:grid;
+  grid-template-columns:repeat(5,1fr);
+  gap:10px;
+}
+.info-chip{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:9px;padding:11px 14px;
+  display:flex;flex-direction:column;gap:3px;
+}
+.info-chip .ic-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
+.info-chip .ic-value{font-size:13px;font-weight:700;}
+.info-chip .ic-value.blue{color:#60a5fa;}
+.info-chip .ic-value.green{color:#4ade80;}
+.info-chip .ic-value.orange{color:#fb923c;}
+.info-chip .ic-value.purple{color:#a78bfa;}
+.info-chip .ic-value.red{color:#f87171;}
+
+/* Status pill */
+.status{
+  display:flex;align-items:center;gap:7px;
+  padding:6px 14px;border-radius:99px;
+  font-size:12px;font-weight:600;
+  border:1px solid var(--border);background:var(--surface2);
+}
+.status-dot{width:8px;height:8px;border-radius:50%;}
+.status.idle   .status-dot{background:var(--muted);}
+.status.running .status-dot{background:var(--green);animation:pulse 1.2s infinite;}
+.status.done   .status-dot{background:var(--blue);}
+@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(74,222,128,.4);}
+  50%{opacity:.7;box-shadow:0 0 0 5px rgba(74,222,128,0);}}
+
+/* Buttons */
+button{
+  padding:9px 20px;border:none;border-radius:8px;
+  font-size:13px;font-weight:600;cursor:pointer;
+  transition:opacity .2s,transform .15s;
+}
+button:active{transform:scale(.97);}
+.btn-primary{background:#3b82f6;color:#fff;}
+.btn-primary:hover:not(:disabled){background:#2563eb;}
+.btn-primary:disabled{opacity:.4;cursor:default;}
+.btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border);}
+.btn-secondary:hover{background:var(--border);}
+
+/* Progress card */
+.progress-section{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:20px 24px;
+}
+.progress-bar-container{height:8px;background:var(--surface2);border-radius:99px;overflow:hidden;margin:12px 0;}
+.progress-bar-fill{
+  height:100%;border-radius:99px;
+  background:linear-gradient(90deg,#3b82f6,#8b5cf6);
+  width:0%;transition:width .4s ease;
+}
+.progress-text{font-size:12px;color:var(--muted);}
+
+/* Stat boxes */
+.progress-info{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:14px;}
+.stat-box{
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:10px;padding:14px 16px;
+}
+.stat-box h3{font-size:22px;font-weight:700;margin-bottom:4px;}
+.stat-box p{font-size:11px;color:var(--muted);}
+.stat-box.green h3{color:#4ade80;}
+.stat-box.orange h3{color:#fb923c;}
+.stat-box.blue h3{color:#60a5fa;}
+
+/* Dashboard grid */
+.dashboard-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;}
+.card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:20px;
+}
+.card h2{font-size:14px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+.card-icon{font-size:18px;}
+.chart-container{position:relative;height:280px;width:100%;}
+.full-width{grid-column:1/-1;}
+
+/* CRI Heatmap */
+.heatmap-pair{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.hm-title{font-size:12px;font-weight:700;margin-bottom:6px;}
+.hm-title.rtree{color:var(--rtree);}
+.hm-title.lchi{color:var(--lchi);}
+.hm-axis-row{display:grid;grid-template-columns:20px repeat(4,1fr);gap:3px;margin-bottom:2px;}
+.hm-corner{width:20px;}
+.hm-axis-label{text-align:center;font-size:10px;color:var(--muted);padding-bottom:2px;}
+.hm-rows{display:flex;flex-direction:column;gap:3px;}
+.hm-row{display:grid;grid-template-columns:20px repeat(4,1fr);gap:3px;}
+.hm-row-label{display:flex;align-items:center;font-size:10px;color:var(--muted);}
+.hm-cell{
+  aspect-ratio:1;border-radius:5px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:9px;font-weight:700;
+  transition:background .4s ease;
+  border:1px solid rgba(255,255,255,.05);
+}
+.hm-cell.diag{background:rgba(255,255,255,.04)!important;color:var(--muted);}
+.hm-legend{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:10px;color:var(--muted);}
+.hm-legend-bar{flex:1;height:6px;border-radius:99px;background:linear-gradient(90deg,#1e3a5f,#3b82f6,#f87171,#ef4444);}
+
+/* Comparison table */
+.comparison-table{width:100%;border-collapse:collapse;}
+.comparison-table th{
+  text-align:left;padding:9px 12px;
+  font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;
+  color:var(--muted);border-bottom:1px solid var(--border);
+}
+.comparison-table td{padding:11px 12px;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px;}
+.comparison-table tr:last-child td{border-bottom:none;}
+.comparison-table tr:hover td{background:rgba(255,255,255,.02);}
+.improvement-badge{
+  display:inline-block;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:700;
+}
+.improvement-badge.positive{background:rgba(74,222,128,.15);color:#4ade80;}
+.improvement-badge.negative{background:rgba(248,113,113,.15);color:#f87171;}
+
+/* Latency mini stats — 5 columns */
+.latency-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:12px;}
+.stat{background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:10px 12px;}
+.stat-value{font-size:16px;font-weight:700;}
+.stat-label{font-size:10px;color:var(--muted);margin-top:2px;}
+
+/* Hero badge for VLUI index */
+.idx-hero{
+  display:inline-flex;align-items:center;gap:4px;
+  background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);
+  color:#4ade80;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:700;
+}
+
+/* Bars grid */
+.bars-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
+
+/* ── SPRT panel ───────────────────────────────────────────── */
+.sprt-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;}
+.sprt-card{
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:10px;padding:14px;
+}
+.sprt-card.accept{border-color:rgba(74,222,128,.5);background:rgba(74,222,128,.06);}
+.sprt-card.reject{border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.06);}
+.sprt-verdict{
+  display:inline-block;padding:3px 10px;border-radius:99px;
+  font-size:11px;font-weight:800;margin-bottom:8px;
+}
+.sprt-verdict.accept{background:rgba(74,222,128,.18);color:#4ade80;}
+.sprt-verdict.reject{background:rgba(248,113,113,.18);color:#f87171;}
+.sprt-verdict.continue{background:rgba(148,163,184,.12);color:#94a3b8;}
+.sprt-gauge-wrap{height:6px;background:var(--border);border-radius:99px;overflow:hidden;margin:6px 0;position:relative;}
+.sprt-gauge-fill{height:100%;border-radius:99px;transition:width .4s;}
+.sprt-stats{font-size:10px;color:var(--muted);display:flex;justify-content:space-between;margin-top:4px;}
+.sprt-pair-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-top:8px;}
+.sprt-pair{
+  font-size:9px;padding:3px 5px;border-radius:4px;text-align:center;
+  background:var(--surface);border:1px solid var(--border);
+}
+.sprt-pair.accept{background:rgba(74,222,128,.10);border-color:rgba(74,222,128,.3);color:#4ade80;}
+.sprt-pair.reject{background:rgba(248,113,113,.10);border-color:rgba(248,113,113,.3);color:#f87171;}
+.sprt-pair.continue{color:var(--muted);}
+.sprt-theorem{
+  background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.25);
+  border-radius:10px;padding:14px 18px;
+  font-size:12px;line-height:1.7;
+  display:flex;align-items:flex-start;gap:14px;
+}
+.sprt-theorem code{
+  font-family:'Cascadia Code','Fira Mono',monospace;
+  background:rgba(255,255,255,.06);padding:1px 6px;border-radius:4px;
+  font-size:11px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px;}
+
+@media(max-width:900px){
+  .dashboard-grid,.progress-info,.heatmap-pair,.latency-stats,.bars-grid{grid-template-columns:1fr!important;}
+  .full-width{grid-column:auto;}
+  .info-strip{grid-template-columns:repeat(2,1fr)!important;}
+}
+    </style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <header>
+    <span class="vlui-badge">VLUI</span>
+    <span class="header-icon">🔬</span>
+    <div>
+      <h1>Locality-Constrained Spatial Indexing with Provable Cross-Region Interference Bounds</h1>
+      <p>Live Benchmark  ·  6-Index Comparison  ·  CRI metric (∂E[L<sub>j</sub>]/∂λ<sub>i</sub>) via windowed OLS + Bootstrap CI</p>
+    </div>
+    <div class="header-right">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:11px;color:var(--muted);">Dataset:</span>
+        <button class="btn-secondary" id="syntheticBtn" onclick="setMode('synthetic')" style="padding:5px 12px;font-size:11px;">🔢 Synthetic</button>
+        <button class="btn-secondary" id="realBtn" onclick="setMode('real')" style="padding:5px 12px;font-size:11px;">📁 Real CSV</button>
+      </div>
+      <span class="status idle" id="statusIndicator">
+        <span class="status-dot"></span>
+        <span id="statusText">Idle</span>
+      </span>
+      <button class="btn-secondary" onclick="resetBenchmark()">↺ Reset</button>
+      <button class="btn-primary" id="startBtn" onclick="startBenchmark()">▶ Start Benchmark</button>
+    </div>
+  </header>
+
+  <!-- Real Dataset Upload Panel (hidden by default) -->
+  <div id="uploadPanel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 24px;">
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+      <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="handleFileSelect(this)">
+      <button class="btn-secondary" onclick="document.getElementById('csvFile').click()">📂 Choose CSV file</button>
+      <button class="btn-secondary" onclick="uploadCSV()" id="uploadBtn" disabled style="background:#3b82f6;color:#fff;">⬆ Upload &amp; Parse</button>
+      <span id="uploadStatus" style="font-size:12px;color:var(--muted);">No file selected — supports Porto Taxi POLYLINE format or generic lon/lat CSV</span>
+      <button class="btn-secondary" id="clearDatasetBtn" onclick="clearDataset()" style="display:none;font-size:11px;padding:5px 12px;border-color:rgba(248,113,113,.4);color:#f87171;">✕ Clear dataset</button>
+    </div>
+    <div id="uploadResult" style="display:none;margin-top:10px;padding:10px 14px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);border-radius:8px;font-size:12px;"></div>
+    <div id="uploadError" style="display:none;margin-top:10px;padding:10px 14px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:8px;font-size:12px;color:#f87171;"></div>
+  </div>
+
+  <!-- Project info strip -->
+  <div class="info-strip">
+    <div class="info-chip">
+      <span class="ic-label">Project</span>
+      <span class="ic-value blue">VLUI</span>
+      <span style="font-size:10px;color:var(--muted);">Locality-Constrained Spatial Indexing</span>
+    </div>
+    <div class="info-chip">
+      <span class="ic-label">Indexes Benchmarked</span>
+      <span class="ic-value" style="font-size:11px;">
+        <span style="color:#f87171;">R-tree</span>
+        <span style="color:#4ade80;font-weight:900;"> LCHI✓</span>
+        <span style="color:#60a5fa;"> Buf</span>
+        <span style="color:#fbbf24;"> Grid</span>
+        <span style="color:#a78bfa;"> LSM</span>
+      </span>
+      <span style="font-size:10px;color:var(--muted);">5 spatial index structures</span>
+    </div>
+    <div class="info-chip">
+      <span class="ic-label">Benchmark Config</span>
+      <span class="ic-value green" id="chipOpsCount">500 ops</span>
+      <span style="font-size:10px;color:var(--muted);" id="chipOpsDetail">350 inserts · 150 range queries</span>
+    </div>
+    <div class="info-chip">
+      <span class="ic-label">Workload Model</span>
+      <span class="ic-value orange" id="chipWorkload">Zipf  α = 1.5</span>
+      <span style="font-size:10px;color:var(--muted);" id="chipWorkloadDetail">4 regions · 2×2 grid · seed 42</span>
+    </div>
+    <div class="info-chip">
+      <span class="ic-label">CRI Estimator</span>
+      <span class="ic-value purple">OLS + Bootstrap</span>
+      <span style="font-size:10px;color:var(--muted);">window = 50 ops · 200 resamples · 95% CI</span>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-section">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+      <span style="font-size:13px;color:var(--muted);" id="progressLabel">Not started — click Start to begin</span>
+      <span style="font-size:20px;font-weight:700;" id="progressPct">0%</span>
+    </div>
+    <div class="progress-bar-container">
+      <div class="progress-bar-fill" id="progressBar"></div>
+    </div>
+    <div class="progress-info">
+      <div class="stat-box">
+        <h3 id="opsCount">0</h3>
+        <p id="opsSub">of 0 operations</p>
+      </div>
+      <div class="stat-box green">
+        <h3 id="vlui_iso">—</h3>
+        <p>LCHI (VLUI) Isolation</p>
+      </div>
+      <div class="stat-box">
+        <h3 id="vlui_cri" style="color:#a78bfa;">—</h3>
+        <p>LCHI (VLUI) Mean CRI</p>
+      </div>
+      <div class="stat-box blue">
+        <h3 id="timeElapsed">0.0s</h3>
+        <p id="opsPerSecSub">— ops/s</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main grid -->
+  <div class="dashboard-grid">
+
+    <!-- Isolation line chart — all 5 -->
+    <div class="card">
+      <h2><span class="card-icon">📈</span> Isolation Score — All 6 Indexes</h2>
+      <div class="chart-container"><canvas id="isolationChart"></canvas></div>
+    </div>
+
+    <!-- CRI heatmap: R-tree vs LCHI (VLUI) -->
+    <div class="card">
+      <h2><span class="card-icon">🟥</span> CRI Heatmap — R-tree vs LCHI (VLUI)</h2>
+      <div class="heatmap-pair">
+        <div>
+          <div class="hm-title rtree">R-tree</div>
+          <div class="hm-axis-row">
+            <div class="hm-corner"></div>
+            <div class="hm-axis-label">R0</div><div class="hm-axis-label">R1</div>
+            <div class="hm-axis-label">R2</div><div class="hm-axis-label">R3</div>
+          </div>
+          <div class="hm-rows" id="hmRtree"></div>
+          <div class="hm-legend"><span>Low</span><div class="hm-legend-bar"></div><span>High</span></div>
+        </div>
+        <div>
+          <div class="hm-title" style="color:#4ade80;">LCHI (VLUI ✓)</div>
+          <div class="hm-axis-row">
+            <div class="hm-corner"></div>
+            <div class="hm-axis-label">R0</div><div class="hm-axis-label">R1</div>
+            <div class="hm-axis-label">R2</div><div class="hm-axis-label">R3</div>
+          </div>
+          <div class="hm-rows" id="hmLchi"></div>
+          <div class="hm-legend"><span>Low</span><div class="hm-legend-bar"></div><span>High</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CRI evolution — all 5 -->
+    <div class="card">
+      <h2><span class="card-icon">🔗</span> Mean Cross-CRI — All 6 Indexes</h2>
+      <div class="chart-container"><canvas id="criChart"></canvas></div>
+    </div>
+
+    <!-- Latency stream — all 5 stat boxes + bar chart -->
+    <div class="card">
+      <h2><span class="card-icon">⏱️</span> Query Latency — All 6 Indexes</h2>
+      <div class="latency-stats">
+        <div class="stat"><div class="stat-value" style="color:#f87171;" id="lat_rtree">—</div><div class="stat-label">R-tree (ns)</div></div>
+        <div class="stat"><div class="stat-value" style="color:#4ade80;" id="lat_lchi">—</div><div class="stat-label">LCHI / VLUI (ns)</div></div>
+        <div class="stat"><div class="stat-value" style="color:#60a5fa;" id="lat_buffered">—</div><div class="stat-label">BufferedR (ns)</div></div>
+        <div class="stat"><div class="stat-value" style="color:#fbbf24;" id="lat_grid">—</div><div class="stat-label">GridBTree (ns)</div></div>
+        <div class="stat"><div class="stat-value" style="color:#a78bfa;" id="lat_lsm">—</div><div class="stat-label">LSMSpatial (ns)</div></div>
+      </div>
+      <div class="chart-container" style="height:180px;"><canvas id="latencyChart"></canvas></div>
+    </div>
+
+  </div>
+
+  <!-- Performance bar charts: 3 metrics × 6 indexes -->
+  <div class="card full-width">
+    <h2><span class="card-icon">📊</span> Final Performance Comparison — VLUI vs All</h2>
+    <div class="bars-grid">
+      <div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Isolation Score ↑ (higher = better)</div>
+        <div class="chart-container" style="height:200px;"><canvas id="barIsoChart"></canvas></div>
+      </div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Mean Cross-CRI ↓ (lower = better)</div>
+        <div class="chart-container" style="height:200px;"><canvas id="barCriChart"></canvas></div>
+      </div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Mean Query Latency ↓ (lower = better, ns)</div>
+        <div class="chart-container" style="height:200px;"><canvas id="barLatChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SPRT Falsifiability Panel ───────────────────────── -->
+  <div class="card full-width" id="sprtSection">
+    <h2><span class="card-icon">🧪</span> SPRT — Live Falsifiability of Zero-CRI Claim &nbsp;<small style="font-size:11px;color:var(--muted);font-weight:400;">H₀: |CRI&#x2080;| ≤ ε &nbsp;·&nbsp; α = β = 5 % &nbsp;·&nbsp; δ = 0.05</small></h2>
+    <div class="sprt-theorem" style="margin-bottom:16px;">
+      <span style="font-size:24px;">🔬</span>
+      <div>
+        <strong>Theorem 2 (Zero Cross-Region Interference):</strong>
+        For LCHI, <code>CRI&#x2099;&#x2192;&#x2C7C; = 0</code> for all i ≠ j. &nbsp;
+        Each benchmark window produces one |CRI&#x2099;&#x2192;&#x2C7C;| observation per pair.
+        Wald's SPRT continuously tries to <em>reject</em> this claim.
+        If the test never rejects and eventually accepts, the claim is
+        empirically supported at controlled error rates α = β = 5 %.
+        A rejection would pinpoint the violating (i,j) pair and window count.
+        <span id="sprtGlobalVerdict" style="margin-left:12px;"></span>
+      </div>
+    </div>
+    <div class="sprt-grid" id="sprtGrid"></div>
+    <div style="margin-top:14px;">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Mean LLR over time — all 6 indexes (positive → evidence for interference; negative → evidence for zero CRI)</div>
+      <div class="chart-container" style="height:150px;"><canvas id="sprtLLRChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card full-width">
+    <h2><span class="card-icon">🏆</span> Live Scoring Table — All Indexes vs VLUI &nbsp;<small style="font-size:11px;color:var(--muted);font-weight:400;"><span style="color:#4ade80;">■</span> VLUI leads &nbsp;<span style="color:#f87171;">■</span> Competitor leads</small></h2>
+    <table class="comparison-table" id="scoreTable">
+      <thead>
+        <tr>
+          <th>Index</th>
+          <th>Isolation ↑</th>
+          <th>Mean CRI ↓</th>
+          <th>Mean Latency ↓</th>
+          <th title="positive = competitor higher (bad for VLUI on isolation)">Δ Isolation vs VLUI</th>
+          <th title="positive = competitor CRI higher = VLUI wins">Δ CRI vs VLUI</th>
+          <th title="positive = competitor latency higher = VLUI wins">Δ Latency vs VLUI</th>
+        </tr>
+      </thead>
+      <tbody id="scoreBody"></tbody>
+    </table>
+  </div>
+
+  <footer style="text-align:center;font-size:11px;color:var(--muted);padding:8px;">
+    <span style="font-weight:700;color:#818cf8;">VLUI</span> · Locality-Constrained Spatial Indexing with Provable Cross-Region Interference Bounds · 2026
+  </footer>
+</div>
+
+<script>
+/* ── Config ────────────────────────────────────────────────── */
+let timer = null;  // polling interval handle
+
+const INDEXES = [
+  { key:'rtree',    label:'R-tree',         color:'#f87171', bg:'rgba(248,113,113,.55)' },
+  { key:'lchi',     label:'LCHI (VLUI ✓)',  color:'#4ade80', bg:'rgba(74,222,128,.55)'  },
+  { key:'buffered', label:'BufferedRTree',  color:'#60a5fa', bg:'rgba(96,165,250,.55)'  },
+  { key:'grid',     label:'GridBTree',      color:'#fbbf24', bg:'rgba(251,191,36,.55)'  },
+  { key:'lsm',      label:'LSMSpatial',     color:'#a78bfa', bg:'rgba(167,139,250,.55)' },
+  { key:'learned',  label:'LearnedGrid',    color:'#fb923c', bg:'rgba(251,146,60,.55)'  },
+];
+
+Chart.defaults.color     = '#64748b';
+Chart.defaults.font.size = 11;
+const GRID = { color:'rgba(255,255,255,.05)', drawBorder:false };
+
+/* ── Line charts (5 datasets) ──────────────────────────────── */
+function makeLineChart(id, yLabel, fmt) {
+  return new Chart(document.getElementById(id).getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: INDEXES.map(ix => ({
+        label: ix.label, data: [],
+        borderColor: ix.color,
+        backgroundColor: ix.color.replace(')', ',.1)').replace('rgb','rgba'),
+        borderWidth: ix.key === 'lchi' ? 3 : 1.5,
+        pointRadius: ix.key === 'lchi' ? 4 : 2,
+        tension: .35, fill: false,
+      })),
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false, animation:{duration:300},
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{position:'top',labels:{usePointStyle:true,padding:12,boxWidth:8}},
+        tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${fmt(c.parsed.y)}`}},
+      },
+      scales:{
+        x:{grid:GRID,ticks:{maxTicksLimit:8}},
+        y:{grid:GRID,title:{display:true,text:yLabel},ticks:{callback:fmt}},
+      },
+    },
+  });
+}
+const isoChart = makeLineChart('isolationChart','Isolation Score', v=>v.toFixed(3));
+const criChart = makeLineChart('criChart','Mean Cross-CRI', v=>v.toFixed(5));
+
+/* ── Bar charts (per-metric final comparison) ──────────────── */
+function makeBarChart(id) {
+  return new Chart(document.getElementById(id).getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: INDEXES.map(ix => ix.label),
+      datasets: [{
+        data: Array(5).fill(0),
+        backgroundColor: INDEXES.map(ix => ix.bg),
+        borderColor:     INDEXES.map(ix => ix.color),
+        borderWidth: INDEXES.map(ix => ix.key === 'lchi' ? 2 : 1),
+        borderRadius: 6,
+      }],
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false, animation:{duration:400},
+      plugins:{ legend:{display:false} },
+      scales:{
+        x:{grid:GRID, ticks:{font:{size:10}}},
+        y:{grid:GRID, beginAtZero:true},
+      },
+    },
+  });
+}
+const barIsoChart = makeBarChart('barIsoChart');
+const barCriChart = makeBarChart('barCriChart');
+const barLatChart = makeBarChart('barLatChart');
+
+/* ── Latency stream bar chart (last 30 queries, all 5) ─────── */
+const latChart = new Chart(document.getElementById('latencyChart').getContext('2d'), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: INDEXES.map(ix => ({
+      label: ix.label, data: [],
+      borderColor: ix.color,
+      borderWidth: ix.key === 'lchi' ? 2.5 : 1.5,
+      pointRadius: 0, tension: .3, fill: false,
+    })),
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false, animation:{duration:200},
+    interaction:{mode:'index',intersect:false},
+    plugins:{ legend:{position:'top',labels:{usePointStyle:true,padding:10,boxWidth:7,font:{size:10}}} },
+    scales:{
+      x:{grid:GRID,ticks:{display:false}},
+      y:{grid:GRID,title:{display:true,text:'Latency (ns)'},beginAtZero:true},
+    },
+  },
+});
+
+/* ── Heatmap ───────────────────────────────────────────────── */
+function buildHeatmap(id) {
+  const el = document.getElementById(id);
+  el.innerHTML = '';
+  for (let i=0;i<4;i++){
+    const row = document.createElement('div'); row.className='hm-row';
+    const lbl = document.createElement('div'); lbl.className='hm-row-label'; lbl.textContent='R'+i;
+    row.appendChild(lbl);
+    for (let j=0;j<4;j++){
+      const c=document.createElement('div');
+      c.className='hm-cell'+(i===j?' diag':''); c.id=`${id}-${i}-${j}`;
+      c.textContent=i===j?'—':'0'; row.appendChild(c);
+    }
+    el.appendChild(row);
+  }
+}
+buildHeatmap('hmRtree'); buildHeatmap('hmLchi');
+
+function criColor(v,mx){
+  if(!mx)mx=1; const t=Math.min(v/mx,1);
+  if(t<.5){const s=t*2;return `rgb(${Math.round(30+s*29)},${Math.round(58+s*72)},${Math.round(138+s*108)})`;}
+  const s=(t-.5)*2;return `rgb(${Math.round(59+s*180)},${Math.round(130-s*62)},${Math.round(246-s*178)})`;
+}
+function updateHeatmap(id,matrix){
+  if(!matrix||!matrix.length)return;
+  const n=matrix.length; let mx=0;
+  // use absolute values so negatives don't break the colour scale
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++)if(i!==j&&Math.abs(matrix[i][j])>mx)mx=Math.abs(matrix[i][j]);
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++){
+    if(i===j)continue;
+    const c=document.getElementById(`${id}-${i}-${j}`); if(!c)continue;
+    const v=matrix[i][j]; const av=Math.abs(v);
+    c.style.background=criColor(av,mx);
+    // prefix negative CRI with a minus sign indicator
+    c.textContent=(v<0?'−':'')+av.toFixed(3);
+    c.style.color=(av/mx)>.55?'#fff':'#1e293b';
+  }
+}
+
+/* ── Score table builder ───────────────────────────────────── */
+function buildScoreTable(d) {
+  const lchi = d.current['lchi'] || {};
+  const tbody = document.getElementById('scoreBody');
+  tbody.innerHTML = '';
+  INDEXES.forEach(ix => {
+    const cur = d.current[ix.key] || {};
+    const iso = cur.isolation       || 0;
+    const cri = cur.mean_cri        || 0;
+    const lat = cur.mean_latency_ns || 0;
+    const lIso = lchi.isolation       || 0;
+    const lCri = lchi.mean_cri        || 0;
+    const lLat = lchi.mean_latency_ns || 0;
+    const isVLUI = ix.key === 'lchi';
+
+    const pctIso = lIso>0 ? (iso-lIso)/lIso*100 : 0;
+    const pctCri = lCri>0 ? (cri-lCri)/lCri*100 : 0;
+    const pctLat = lLat>0 ? (lat-lLat)/lLat*100 : 0;
+
+    const tr = document.createElement('tr');
+    const nameCell = isVLUI
+      ? `<td><strong style="color:#4ade80;">LCHI</strong> <span class="idx-hero">VLUI ✓</span></td>`
+      : `<td style="color:${ix.color}">${ix.label}</td>`;
+
+    tr.innerHTML = nameCell
+      + `<td style="font-weight:600;">${iso.toFixed(4)}</td>`
+      + `<td style="font-weight:600;">${cri.toFixed(6)}</td>`
+      + `<td style="font-weight:600;">${lat>0?Math.round(lat).toLocaleString('en-US')+' ns':'—'}</td>`
+      + (isVLUI
+          ? `<td colspan="3" style="text-align:center;"><span class="idx-hero">★ Reference (VLUI)</span></td>`
+          : `<td>${mkbadge(pctIso,true)}</td><td>${mkbadge(pctCri,false)}</td><td>${mkbadge(pctLat,false)}</td>`);
+    tbody.appendChild(tr);
+  });
+}
+
+// pct = (competitor − vlui) / |vlui| × 100
+// GREEN (positive) = VLUI leads that metric:
+//   isolation (↑): VLUI leads when competitor is lower → pct < 0
+//   CRI / latency (↓): VLUI leads when competitor is higher → pct > 0
+function mkbadge(pct, higherBetter) {
+  if (!isFinite(pct)) return '<span class="improvement-badge">—</span>';
+  const vlui_leads = higherBetter ? pct < 0 : pct > 0;
+  const cls = Math.abs(pct)<3 ? '' : vlui_leads ? 'positive' : 'negative';
+  const sign = pct>0?'+':'';
+  return `<span class="improvement-badge ${cls}">${sign}${pct.toFixed(1)}%</span>`;
+}
+
+/* ── SPRT charts ──────────────────────────────────────────── */
+const sprtLLRChart = new Chart(document.getElementById('sprtLLRChart').getContext('2d'), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: INDEXES.map(ix => ({
+      label: ix.label, data: [],
+      borderColor: ix.color,
+      borderWidth: ix.key === 'lchi' ? 2.5 : 1.5,
+      pointRadius: 0, tension: .3, fill: false,
+    })),
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false, animation:{duration:200},
+    interaction:{mode:'index',intersect:false},
+    plugins:{
+      legend:{position:'top',labels:{usePointStyle:true,padding:10,boxWidth:7,font:{size:10}}},
+      annotation:{
+        annotations:{
+          zeroLine:{type:'line',yMin:0,yMax:0,borderColor:'rgba(255,255,255,.15)',borderWidth:1,borderDash:[4,4]},
+        },
+      },
+    },
+    scales:{
+      x:{grid:GRID,ticks:{display:false}},
+      y:{grid:GRID,title:{display:true,text:'Mean LLR'}},
+    },
+  },
+});
+
+function verdictClass(v) {
+  if(v==='accept_h0') return 'accept';
+  if(v==='reject_h0') return 'reject';
+  return 'continue';
+}
+function verdictLabel(v) {
+  if(v==='accept_h0') return '✓ H₀ Accepted';
+  if(v==='reject_h0') return '✗ H₀ Rejected';
+  return '… Testing';
+}
+
+function renderSPRT(sprtData) {
+  const grid = document.getElementById('sprtGrid');
+  grid.innerHTML = '';
+  INDEXES.forEach(ix => {
+    const s = sprtData[ix.key] || {};
+    const vc = verdictClass(s.verdict || 'continue');
+    const pct = Math.max(0, Math.min(1,
+      s.mean_llr >= 0
+        ? s.mean_llr / (s.boundary_reject || 1)
+        : Math.abs(s.mean_llr) / (Math.abs(s.boundary_accept) || 1)
+    )) * 100;
+    const gaugeColor = s.mean_llr > 0 ? '#f87171' : '#4ade80';
+
+    const pairsHTML = (s.pairs || []).map(p => {
+      const pc = verdictClass(p.decision);
+      return `<div class="sprt-pair ${pc}" title="LLR=${p.llr}\nobs=${p.n_obs}">(${p.i}→${p.j})</div>`;
+    }).join('');
+
+    const card = document.createElement('div');
+    card.className = `sprt-card ${vc}`;
+    card.style.borderTopColor = ix.color;
+    card.style.borderTopWidth = '3px';
+    card.innerHTML = `
+      <div style="font-size:12px;font-weight:700;color:${ix.color};margin-bottom:6px;">${ix.label}</div>
+      <span class="sprt-verdict ${vc}">${verdictLabel(s.verdict)}</span>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:3px;">Mean LLR: <strong style="color:var(--text);">${(s.mean_llr||0).toFixed(3)}</strong></div>
+      <div class="sprt-gauge-wrap">
+        <div class="sprt-gauge-fill" style="width:${pct}%;background:${gaugeColor};"></div>
+      </div>
+      <div class="sprt-stats">
+        <span>✓ ${s.n_accepted||0} pairs</span>
+        <span style="color:#f87171;">✗ ${s.n_rejected||0}</span>
+        <span>… ${s.n_continue||0}</span>
+      </div>
+      <div class="sprt-pair-grid">${pairsHTML}</div>
+    `;
+    grid.appendChild(card);
+  });
+
+  // Global verdict badge
+  const verdicts = INDEXES.map(ix => (sprtData[ix.key]||{}).verdict||'continue');
+  const anyReject = verdicts.includes('reject_h0');
+  const allAccept = verdicts.every(v=>v==='accept_h0');
+  const gv = anyReject ? 'reject_h0' : allAccept ? 'accept_h0' : 'continue';
+  const gvc = verdictClass(gv);
+  document.getElementById('sprtGlobalVerdict').innerHTML =
+    `<span class="sprt-verdict ${gvc}" style="font-size:13px;">${verdictLabel(gv)}</span>`;
+
+  // SPRT LLR line chart
+  INDEXES.forEach((ix,i) => {
+    const hist = (sprtData[ix.key]||{}).llr_history || [];
+    sprtLLRChart.data.datasets[i].data = hist;
+  });
+  const maxLen = Math.max(...INDEXES.map(ix => ((sprtData[ix.key]||{}).llr_history||[]).length));
+  sprtLLRChart.data.labels = Array.from({length:maxLen},(_,i)=>i+'');
+  sprtLLRChart.update('none');
+}
+
+async function poll() {
+  let d;
+  try { d = await (await fetch('/api/metrics')).json(); } catch { return; }
+
+  const pct = d.progress || 0;
+  document.getElementById('progressBar').style.width = pct+'%';
+  document.getElementById('progressPct').textContent = pct.toFixed(1)+'%';
+  document.getElementById('progressLabel').textContent = d.running
+    ? `Running — ${d.current_op} / ${d.total_ops} operations`
+    : d.done ? `✅ Complete — ${d.total_ops} ops in ${d.elapsed_time.toFixed(1)}s`
+    : 'Not started — click Start to begin';
+
+  document.getElementById('opsCount').textContent    = d.current_op;
+  document.getElementById('opsSub').textContent      = `of ${d.total_ops} operations`;
+  document.getElementById('timeElapsed').textContent = d.elapsed_time.toFixed(1)+'s';
+  const ops_s = d.elapsed_time>0 ? Math.round(d.current_op/d.elapsed_time) : '—';
+  document.getElementById('opsPerSecSub').textContent = ops_s+' ops/s';
+
+  const lchi_cur = d.current['lchi'] || {};
+  document.getElementById('vlui_iso').textContent = (lchi_cur.isolation||0).toFixed(4);
+  document.getElementById('vlui_cri').textContent = (lchi_cur.mean_cri||0).toFixed(6);
+
+  // Line charts (use rtree timestamps as common x-axis)
+  const labels = (d.metrics['rtree'] ? d.metrics['rtree'].timestamps : []).map(t=>t.toFixed(1)+'s');
+  isoChart.data.labels = labels;
+  criChart.data.labels = labels;
+  INDEXES.forEach((ix,i) => {
+    isoChart.data.datasets[i].data = d.metrics[ix.key] ? d.metrics[ix.key].isolation : [];
+    criChart.data.datasets[i].data = d.metrics[ix.key] ? d.metrics[ix.key].mean_cri  : [];
+  });
+  isoChart.update('none');
+  criChart.update('none');
+
+  // Heatmaps (R-tree & LCHI)
+  updateHeatmap('hmRtree', d.cri_matrix['rtree']);
+  updateHeatmap('hmLchi',  d.cri_matrix['lchi']);
+
+  // Latency stream (last 30 queries per index)
+  const latLabels = Array.from({length:30},(_,i)=>i+'');
+  latChart.data.labels = latLabels;
+  INDEXES.forEach((ix,i) => {
+    const lats = (d.latencies[ix.key]||[]).slice(-30);
+    latChart.data.datasets[i].data = lats;
+    const mean = lats.length ? Math.round(lats.reduce((a,b)=>a+b)/lats.length) : null;
+    const el = document.getElementById('lat_'+ix.key);
+    if (el) el.textContent = mean ? mean.toLocaleString('en-US') : '—';
+  });
+  latChart.update('none');
+
+  // Bar charts — final comparison bars
+  const isoVals = INDEXES.map(ix => (d.current[ix.key]||{}).isolation||0);
+  const criVals = INDEXES.map(ix => (d.current[ix.key]||{}).mean_cri||0);
+  const latVals = INDEXES.map(ix => (d.current[ix.key]||{}).mean_latency_ns||0);
+  barIsoChart.data.datasets[0].data = isoVals; barIsoChart.update('none');
+  barCriChart.data.datasets[0].data = criVals; barCriChart.update('none');
+  barLatChart.data.datasets[0].data = latVals; barLatChart.update('none');
+
+  // Score table
+  buildScoreTable(d);
+
+  // SPRT panel
+  if (d.sprt) renderSPRT(d.sprt);
+
+  // Reflect real-dataset info in info strip (while running)
+  if (d.dataset_info) updateChips(d.dataset_info);
+
+  // Status
+  const sEl = document.getElementById('statusIndicator');
+  sEl.className = 'status '+(d.running?'running':d.done?'done':'idle');
+  document.getElementById('statusText').textContent = d.running?'Running...':d.done?'Complete':'Idle';
+
+  if (d.done && !d.running) {
+    clearInterval(timer); timer = null;
+    document.getElementById('startBtn').disabled = false;
+  }
+}
+
+/* ── Dataset mode toggle ───────────────────────────────────── */
+let _datasetMode = 'synthetic';  // 'synthetic' | 'real'
+let _selectedFile = null;
+
+function setMode(mode) {
+  _datasetMode = mode;
+  document.getElementById('uploadPanel').style.display = mode === 'real' ? 'block' : 'none';
+  document.getElementById('syntheticBtn').style.fontWeight = mode === 'synthetic' ? '800' : '400';
+  document.getElementById('realBtn').style.fontWeight     = mode === 'real'      ? '800' : '400';
+  document.getElementById('syntheticBtn').style.borderColor = mode === 'synthetic' ? '#3b82f6' : '';
+  document.getElementById('realBtn').style.borderColor     = mode === 'real'      ? '#3b82f6' : '';
+  if (mode === 'synthetic') {
+    // When switching back to synthetic, clear server-side pending trace
+    fetch('/api/upload/clear', {method:'POST'}).catch(()=>{});
+    resetChips();
+  }
+}
+
+function handleFileSelect(input) {
+  _selectedFile = input.files[0] || null;
+  const s = document.getElementById('uploadStatus');
+  const btn = document.getElementById('uploadBtn');
+  if (_selectedFile) {
+    const kb = (_selectedFile.size / 1024).toFixed(1);
+    s.textContent = `📄 ${_selectedFile.name}  (${kb} KB) — ready to upload`;
+    s.style.color = 'var(--text)';
+    btn.disabled = false;
+  } else {
+    s.textContent = 'No file selected';
+    s.style.color = 'var(--muted)';
+    btn.disabled = true;
+  }
+  document.getElementById('uploadResult').style.display = 'none';
+  document.getElementById('uploadError').style.display  = 'none';
+  document.getElementById('clearDatasetBtn').style.display = 'none';
+}
+
+async function uploadCSV() {
+  if (!_selectedFile) return;
+  const btn = document.getElementById('uploadBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Parsing…';
+  document.getElementById('uploadError').style.display  = 'none';
+  document.getElementById('uploadResult').style.display = 'none';
+
+  const fd = new FormData();
+  fd.append('file', _selectedFile);
+  fd.append('n_points',  '1000');
+  fd.append('n_queries', '200');
+
+  try {
+    const resp = await fetch('/api/upload', {method:'POST', body:fd});
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+
+    const di = data.dataset_info;
+    const rcStr = Object.entries(di.region_counts||{})
+      .map(([r,n])=>`R${r}: ${n}`).join('  ');
+    const resEl = document.getElementById('uploadResult');
+    resEl.innerHTML =
+      `✅ <strong>${di.source}</strong> — ${di.n_points.toLocaleString()} pts · ` +
+      `${di.n_queries.toLocaleString()} queries · ${di.total_ops.toLocaleString()} total ops` +
+      (rcStr ? `<br><span style="color:var(--muted);">${rcStr}</span>` : '');
+    resEl.style.display = 'block';
+    document.getElementById('uploadStatus').textContent = '✓ Ready — click Start Benchmark';
+    document.getElementById('clearDatasetBtn').style.display = 'inline-block';
+    updateChips(di);
+  } catch(e) {
+    const errEl = document.getElementById('uploadError');
+    errEl.textContent = '❌ ' + e.message;
+    errEl.style.display = 'block';
+  } finally {
+    btn.textContent = '⬆ Upload & Parse';
+    btn.disabled = !_selectedFile;
+  }
+}
+
+async function clearDataset() {
+  await fetch('/api/upload/clear', {method:'POST'}).catch(()=>{});
+  _selectedFile = null;
+  document.getElementById('csvFile').value = '';
+  document.getElementById('uploadStatus').textContent = 'No file selected — supports Porto Taxi POLYLINE format or generic lon/lat CSV';
+  document.getElementById('uploadStatus').style.color = 'var(--muted)';
+  document.getElementById('uploadResult').style.display = 'none';
+  document.getElementById('uploadError').style.display  = 'none';
+  document.getElementById('uploadBtn').disabled = true;
+  document.getElementById('clearDatasetBtn').style.display = 'none';
+  resetChips();
+}
+
+function updateChips(di) {
+  document.getElementById('chipOpsCount').textContent    = di.total_ops.toLocaleString() + ' ops';
+  document.getElementById('chipOpsDetail').textContent   = `${di.n_points.toLocaleString()} inserts · ${di.n_queries.toLocaleString()} queries`;
+  document.getElementById('chipWorkload').textContent    = di.source;
+  document.getElementById('chipWorkloadDetail').textContent = '2×2 grid · real-world data';
+}
+
+function resetChips() {
+  document.getElementById('chipOpsCount').textContent    = '500 ops';
+  document.getElementById('chipOpsDetail').textContent   = '350 inserts · 150 range queries';
+  document.getElementById('chipWorkload').textContent    = 'Zipf  α = 1.5';
+  document.getElementById('chipWorkloadDetail').textContent = '4 regions · 2×2 grid · seed 42';
+}
+
+/* ── Controls ──────────────────────────────────────────────── */
+async function startBenchmark() {
+  document.getElementById('startBtn').disabled = true;
+  await fetch('/api/start', {method:'POST'});
+  if (timer) clearInterval(timer);
+  timer = setInterval(poll, 400);
+}
+
+async function resetBenchmark() {
+  if (timer) { clearInterval(timer); timer = null; }
+  await fetch('/api/reset', {method:'POST'});
+  document.getElementById('startBtn').disabled = false;
+  [isoChart,criChart,latChart,sprtLLRChart].forEach(c=>{
+    c.data.labels=[]; c.data.datasets.forEach(ds=>ds.data=[]); c.update();
+  });
+  [barIsoChart,barCriChart,barLatChart].forEach(c=>{
+    c.data.datasets[0].data=Array(5).fill(0); c.update();
+  });
+  buildHeatmap('hmRtree'); buildHeatmap('hmLchi');
+  document.getElementById('progressBar').style.width='0%';
+  document.getElementById('progressPct').textContent='0%';
+  document.getElementById('progressLabel').textContent='Not started — click Start to begin';
+  document.getElementById('opsCount').textContent='0';
+  document.getElementById('opsSub').textContent='of 0 operations';
+  document.getElementById('timeElapsed').textContent='0.0s';
+  document.getElementById('vlui_iso').textContent='—';
+  document.getElementById('vlui_cri').textContent='—';
+  INDEXES.forEach(ix=>{ const el=document.getElementById('lat_'+ix.key); if(el)el.textContent='—'; });
+  document.getElementById('scoreBody').innerHTML='';
+  document.getElementById('statusIndicator').className='status idle';
+  document.getElementById('statusText').textContent='Idle';
+  // Keep the uploaded dataset selection intact — user can re-run with same data
+}
+</script>
+</body>
+</html>
+

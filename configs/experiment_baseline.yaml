@@ -1,0 +1,122 @@
+# Experiment Configuration
+# VLUI Research: Locality-Constrained Spatial Indexing
+# ──────────────────────────────────────────────────────
+
+experiment:
+  name: "cri_baseline"
+  description: "Baseline CRI measurement across all workload types"
+  seed: 42
+  output_dir: "results"
+
+space:
+  dim: 2
+  lo: 0.0
+  hi: 1.0
+  grid_dims: [4, 4]  # 16 regions
+
+cri:
+  window_size: 500   # operations per CRI window
+  epsilon: 0.01      # ε-isolation threshold
+
+indexes:
+  # B1: Global R-tree (expected high CRI — shared tree)
+  - type: "rtree"
+    params:
+      leaf_capacity: 50
+
+  # B2: Buffered R-tree (deferred bulk inserts)
+  - type: "buffered_rtree"
+    params:
+      leaf_capacity: 50
+      buffer_capacity: 500
+
+  # B3: Grid partition with global B-tree backing
+  - type: "grid_btree"
+    params:
+      grid_dims: [4, 4]
+
+  # B4: LSM-tree with Z-order keys
+  - type: "lsm_spatial"
+    params:
+      memtable_capacity: 1000
+
+  # PROPOSED: LCHI (expected near-zero cross-region CRI)
+  - type: "lchi"
+    params:
+      grid_dims: [4, 4]
+
+workloads:
+  # A1: Uniform baseline (expect CRI ≈ 0 everywhere)
+  - name: "uniform"
+    generator: "uniform"
+    params:
+      n_points: 50000
+      n_queries: 5000
+      query_radius: 0.05
+
+  # A2: Zipf skew — sweep α from mild to extreme
+  - name: "zipf_alpha_1.0"
+    generator: "zipf"
+    params:
+      n_points: 50000
+      n_queries: 5000
+      alpha: 1.0
+      query_radius: 0.05
+
+  - name: "zipf_alpha_1.5"
+    generator: "zipf"
+    params:
+      n_points: 50000
+      n_queries: 5000
+      alpha: 1.5
+      query_radius: 0.05
+
+  - name: "zipf_alpha_2.0"
+    generator: "zipf"
+    params:
+      n_points: 50000
+      n_queries: 5000
+      alpha: 2.0
+      query_radius: 0.05
+
+  - name: "zipf_alpha_3.0"
+    generator: "zipf"
+    params:
+      n_points: 50000
+      n_queries: 5000
+      alpha: 3.0
+      query_radius: 0.05
+
+  # A3: Moving hotspot — linear path
+  - name: "hotspot_linear"
+    generator: "moving_hotspot"
+    params:
+      n_points: 50000
+      n_queries: 5000
+      hotspot_radius: 0.1
+      hotspot_intensity: 0.8
+      velocity: 0.002
+      path_type: "linear"
+
+  # A3: Moving hotspot — circular path
+  - name: "hotspot_circular"
+    generator: "moving_hotspot"
+    params:
+      n_points: 50000
+      n_queries: 5000
+      hotspot_radius: 0.1
+      hotspot_intensity: 0.8
+      velocity: 0.002
+      path_type: "circular"
+
+  # A4: Adversarial burst — the stress test
+  - name: "adversarial_burst"
+    generator: "adversarial"
+    params:
+      n_points: 50000
+      n_queries: 5000
+      attack_region_id: 0
+      burst_size: 2500
+      n_bursts: 10
+      cluster_tightness: 0.001
+      warmup_fraction: 0.2

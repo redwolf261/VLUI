@@ -1,0 +1,37 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Testing / tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+pyrightconfig.json
+
+# Large raw datasets (porto taxi: ~1.7 GB train.csv)
+data/porto_taxi/
+
+# Output: keep summary CSVs and window results; exclude heavy files
+output/**/*.npy
+output/**/results.json
+output/**/timeline.csv
+output/scale/*/run.log
+output/scale/*/stdout.log
+output/scale/*/stderr.log
+output/scale/*.log
+output/e2e_test/
+output/e2e_v2/
+output/smoke_test/
+output/smoke2/
+
+# IDE / OS
+.vscode/
+.idea/
+Thumbs.db
