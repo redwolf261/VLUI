@@ -1,0 +1,7 @@
+index,label,isolation,mean_cri,mean_lat_ns,sprt_verdict,sprt_accepted_pairs,sprt_rejected_pairs,delta_iso_vs_vlui,delta_cri_vs_vlui,delta_lat_vs_vlui
+rtree,R-tree,0.240117,0.08210329,65402.7,REJECT_H0,0,12,-3.966213,-0.39254609,-179679.5
+lchi,LCHI (VLUI ✓),4.20633,0.47464938,245082.2,REJECT_H0,0,12,0.0,0.0,0.0
+buffered,BufferedRTree,3.795225,0.8743685,423849.0,REJECT_H0,0,12,-0.411105,0.39971912,178766.8
+grid,GridBTree,0.901377,0.19287032,4057625.0,REJECT_H0,0,12,-3.304953,-0.28177906,3812542.8
+lsm,LSMSpatial,0.79011,0.15891088,5845346.7,REJECT_H0,0,12,-3.41622,-0.3157385,5600264.5
+learned,LearnedGrid,0.181883,0.06162465,217851.2,REJECT_H0,0,12,-4.024447,-0.41302473,-27231.0
