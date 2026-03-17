@@ -108,6 +108,31 @@ class PairSPRT:
 
         return self.decision
 
+    def recalibrate(self, new_sigma: float, new_delta: float | None = None) -> None:
+        """Recompute LLR from obs_history using new σ (and optionally δ).
+
+        Changing δ shifts the detection threshold so indexes whose |CRI| is
+        below δ/2 get *negative* LLR increments (drift toward Accept) while
+        indexes above δ/2 accumulate positive LLR (drift toward Reject).
+        Reset decision so it can be re-determined from the replayed history.
+        """
+        self.sigma = new_sigma
+        if new_delta is not None:
+            self.delta = new_delta
+        self.decision = SPRTDecision.CONTINUE
+        self.llr = 0.0
+        history = self.obs_history[:]
+        self.obs_history = []
+        self.n_obs = 0
+        for x in history:
+            self.obs_history.append(x)
+            self.n_obs += 1
+            self.llr += (x * self.delta - self.delta ** 2 / 2.0) / (self.sigma ** 2)
+            if self.llr >= self.boundary_reject:
+                self.decision = SPRTDecision.REJECT_H0
+            elif self.llr <= self.boundary_accept:
+                self.decision = SPRTDecision.ACCEPT_H0
+
     def to_dict(self) -> dict:
         return {
             "i": self.i,
@@ -127,17 +152,22 @@ class IndexSPRT:
 
     Parameters
     ----------
-    n_regions  : number of partition regions (m)
-    delta      : minimum detectable CRI effect (default: 0.05 elasticity)
-    sigma      : noise std dev — set to observed noise level; default 0.10
-    alpha      : target Type-I  error rate (default 5 %)
-    beta       : target Type-II error rate (default 5 %)
+    n_regions      : number of partition regions (m)
+    delta          : minimum detectable CRI effect (default: 0.05 elasticity)
+    sigma          : noise std dev — set to observed noise level; default 0.10
+    alpha          : target Type-I  error rate (default 5 %)
+    beta           : target Type-II error rate (default 5 %)
+    warmup_windows : windows of observations to collect before auto-calibrating
+                     σ from the empirical CRI distribution (0 = no warmup).
+                     Useful for real-world data whose CRI scale differs from
+                     the synthetic calibration; set to 5–10 for real datasets.
     """
     n_regions: int
     delta: float = 0.05
     sigma: float = 0.10
     alpha: float = 0.05
     beta: float  = 0.05
+    warmup_windows: int = 0
 
     def __post_init__(self) -> None:
         self._pairs: dict[tuple[int, int], PairSPRT] = {}
@@ -151,9 +181,47 @@ class IndexSPRT:
                         alpha=self.alpha,
                         beta=self.beta,
                     )
+        self._sigma_original: float = self.sigma
+        self._window_count: int = 0
+        self._calibrated: bool = self.warmup_windows == 0
+
+    def _maybe_calibrate(self) -> None:
+        """Transition out of warmup phase.  Actual δ/σ calibration is handled
+        externally (by the benchmark runner) via :meth:`recalibrate`, which
+        allows cross-index calibration so LCHI's scale sets the threshold for
+        all competitors.  Here we only mark the warmup as complete so that
+        subsequent :meth:`update_from_matrix` calls update the LLR normally.
+        """
+        self._calibrated = True
+
+    def recalibrate(self, new_sigma: float, new_delta: float | None = None) -> None:
+        """Recalibrate all pair SPRTs with new σ (and optionally new δ).
+
+        Intended to be called once after the warmup phase with cross-index
+        parameters so that the magnitude-threshold δ is shared across all
+        six indexes (usually anchored to LCHI's observed CRI scale).
+        """
+        self._calibrated = True  # suppress redundant _maybe_calibrate
+        if new_delta is not None:
+            self.delta = new_delta
+        self.sigma = new_sigma
+        for pair in self._pairs.values():
+            pair.recalibrate(new_sigma, new_delta)
 
     def update_from_matrix(self, cri_matrix: list[list[float]]) -> None:
         """Feed a full CRI matrix snapshot (one window of observations)."""
+        self._window_count += 1
+        if not self._calibrated and self._window_count <= self.warmup_windows:
+            # Warmup phase: collect observations but do not update LLR / make decisions.
+            for i in range(self.n_regions):
+                for j in range(self.n_regions):
+                    if i != j:
+                        p = self._pairs[(i, j)]
+                        p.obs_history.append(abs(cri_matrix[i][j]))
+                        p.n_obs += 1
+            return
+        if not self._calibrated:
+            self._maybe_calibrate()
         for i in range(self.n_regions):
             for j in range(self.n_regions):
                 if i != j:

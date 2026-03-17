@@ -5,6 +5,7 @@ Serves live metrics via JSON polling.
 
 from __future__ import annotations
 
+import csv
 import io
 import sys
 from pathlib import Path
@@ -90,10 +91,89 @@ _pending_dataset_info: dict | None = None
 app = Flask(__name__, template_folder="templates")
 CORS(app)
 
+SCALING_CURVE_PATH = PROJECT_ROOT / "output" / "scale" / "scaling_curve.csv"
+
+
+def _read_scaling_curve_rows() -> list[dict]:
+    """Load normalized rows from output/scale/scaling_curve.csv."""
+    if not SCALING_CURVE_PATH.exists():
+        return []
+
+    rows: list[dict] = []
+    with SCALING_CURVE_PATH.open("r", encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        for raw in reader:
+            rows.append(
+                {
+                    "n_points": int(raw["n_points"]),
+                    "index": raw["index"],
+                    "label": raw["label"],
+                    "isolation": float(raw["isolation"]),
+                    "mean_cri": float(raw["mean_cri"]),
+                    "mean_lat_ns": float(raw["mean_lat_ns"]),
+                    "sprt_verdict": raw["sprt_verdict"],
+                }
+            )
+
+    rows.sort(key=lambda r: (r["n_points"], r["index"]))
+    return rows
+
 
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/evaluator")
+def evaluator_view():
+    return render_template("evaluator.html")
+
+
+@app.route("/api/scaling_curve")
+def get_scaling_curve():
+    rows = _read_scaling_curve_rows()
+
+    if not rows:
+        return jsonify(
+            {
+                "rows": [],
+                "n_values": [],
+                "index_labels": [],
+                "generated_at": None,
+                "error": "Missing scaling_curve.csv. Run scripts/collect_scaling_curve.py first.",
+            }
+        )
+
+    n_values = sorted({r["n_points"] for r in rows})
+    index_labels = sorted({r["label"] for r in rows})
+
+    winners: list[dict] = []
+    for n in n_values:
+        group = [r for r in rows if r["n_points"] == n]
+        winners.append(
+            {
+                "n_points": n,
+                "best_isolation": min(group, key=lambda r: r["isolation"])["label"],
+                "best_cri": min(group, key=lambda r: r["mean_cri"])["label"],
+                "best_latency": min(group, key=lambda r: r["mean_lat_ns"])["label"],
+            }
+        )
+
+    generated_at = time.strftime(
+        "%Y-%m-%d %H:%M:%S",
+        time.localtime(SCALING_CURVE_PATH.stat().st_mtime),
+    )
+
+    return jsonify(
+        {
+            "rows": rows,
+            "n_values": n_values,
+            "index_labels": index_labels,
+            "winners": winners,
+            "generated_at": generated_at,
+            "source_file": str(SCALING_CURVE_PATH),
+        }
+    )
 
 
 @app.route("/api/metrics")
@@ -261,9 +341,15 @@ def _run_benchmark(trace=None):
     }
     measurers = {k: CRIMeasurer(n_regions=m, window_size=50) for k in indexes}
     # SPRT: H0=zero CRI, delta=0.05 elasticity, sigma=0.10, alpha=beta=0.05
-    sprts = {k: IndexSPRT(n_regions=m, delta=0.05, sigma=0.10, alpha=0.05, beta=0.05)
+    # For real-world data the CRI magnitudes differ from synthetic; use a
+    # warmup period so sigma is auto-calibrated from the actual distribution.
+    is_real = state.get("dataset_info") is not None
+    sprt_warmup = 5 if is_real else 0
+    sprts = {k: IndexSPRT(n_regions=m, delta=0.05, sigma=0.10, alpha=0.05, beta=0.05,
+                          warmup_windows=sprt_warmup)
              for k in indexes}
     sprt_llr_histories: dict[str, list[float]] = {k: [] for k in indexes}
+    _sprt_xcal_done = False  # cross-calibration fired at most once
 
     for i, op in enumerate(trace.operations):
         if op.op_type == OpType.INSERT and op.point is not None:
@@ -303,6 +389,27 @@ def _run_benchmark(trace=None):
                 sd = sprts[k].to_dict()
                 sd["llr_history"] = sprt_llr_histories[k][-50:]
                 state["sprt"][k] = sd
+
+            # ── Cross-calibrate SPRT after warmup (real datasets only) ──────
+            # After sprt_warmup windows we know LCHI's CRI scale.  Set
+            #   δ = 3 × median(|LCHI CRI|)   σ = δ
+            # so that observations *below* δ/2 (where LCHI typically sits)
+            # produce negative LLR (drift → Accept) while competitors whose
+            # CRI >> LCHI produce positive LLR (drift → Reject).
+            if is_real and not _sprt_xcal_done \
+                    and (i + 1) == sprt_warmup * UPDATE_EVERY:
+                lchi_obs = sorted(
+                    x
+                    for p in sprts["lchi"].all_pairs
+                    for x in p.obs_history
+                )
+                if lchi_obs:
+                    lchi_median = lchi_obs[len(lchi_obs) // 2]
+                    delta_ref = max(0.10, lchi_median * 3.0)
+                    sigma_ref = delta_ref   # δ/σ = 1 → clean boundary scaling
+                    for sprt in sprts.values():
+                        sprt.recalibrate(sigma_ref, delta_ref)
+                _sprt_xcal_done = True
 
             time.sleep(0.08)
 
