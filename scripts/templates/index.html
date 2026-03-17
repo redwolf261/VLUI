@@ -258,6 +258,7 @@ button:active{transform:scale(.97);}
         <span class="status-dot"></span>
         <span id="statusText">Idle</span>
       </span>
+      <a class="btn-secondary" href="/evaluator" style="text-decoration:none;display:inline-flex;align-items:center;">Evaluator View</a>
       <button class="btn-secondary" onclick="resetBenchmark()">↺ Reset</button>
       <button class="btn-primary" id="startBtn" onclick="startBenchmark()">▶ Start Benchmark</button>
     </div>
@@ -402,7 +403,7 @@ button:active{transform:scale(.97);}
     <h2><span class="card-icon">📊</span> Final Performance Comparison — VLUI vs All</h2>
     <div class="bars-grid">
       <div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Isolation Score ↑ (higher = better)</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Isolation Score ↓ (lower = better)</div>
         <div class="chart-container" style="height:200px;"><canvas id="barIsoChart"></canvas></div>
       </div>
       <div>
@@ -445,10 +446,10 @@ button:active{transform:scale(.97);}
       <thead>
         <tr>
           <th>Index</th>
-          <th>Isolation ↑</th>
+          <th>Isolation ↓</th>
           <th>Mean CRI ↓</th>
           <th>Mean Latency ↓</th>
-          <th title="positive = competitor higher (bad for VLUI on isolation)">Δ Isolation vs VLUI</th>
+          <th title="positive = competitor higher = VLUI wins on isolation">Δ Isolation vs VLUI</th>
           <th title="positive = competitor CRI higher = VLUI wins">Δ CRI vs VLUI</th>
           <th title="positive = competitor latency higher = VLUI wins">Δ Latency vs VLUI</th>
         </tr>
@@ -631,15 +632,14 @@ function buildScoreTable(d) {
       + `<td style="font-weight:600;">${lat>0?Math.round(lat).toLocaleString('en-US')+' ns':'—'}</td>`
       + (isVLUI
           ? `<td colspan="3" style="text-align:center;"><span class="idx-hero">★ Reference (VLUI)</span></td>`
-          : `<td>${mkbadge(pctIso,true)}</td><td>${mkbadge(pctCri,false)}</td><td>${mkbadge(pctLat,false)}</td>`);
+          : `<td>${mkbadge(pctIso,false)}</td><td>${mkbadge(pctCri,false)}</td><td>${mkbadge(pctLat,false)}</td>`);
     tbody.appendChild(tr);
   });
 }
 
 // pct = (competitor − vlui) / |vlui| × 100
 // GREEN (positive) = VLUI leads that metric:
-//   isolation (↑): VLUI leads when competitor is lower → pct < 0
-//   CRI / latency (↓): VLUI leads when competitor is higher → pct > 0
+//   isolation / CRI / latency (↓): VLUI leads when competitor is higher → pct > 0
 function mkbadge(pct, higherBetter) {
   if (!isFinite(pct)) return '<span class="improvement-badge">—</span>';
   const vlui_leads = higherBetter ? pct < 0 : pct > 0;
