@@ -188,8 +188,8 @@ class IndexSPRT:
     def _maybe_calibrate(self) -> None:
         """Transition out of warmup phase.  Actual δ/σ calibration is handled
         externally (by the benchmark runner) via :meth:`recalibrate`, which
-        allows cross-index calibration so LCHI's scale sets the threshold for
-        all competitors.  Here we only mark the warmup as complete so that
+        allows cross-index calibration policies (neutral pooled or anchored
+        research modes). Here we only mark the warmup as complete so that
         subsequent :meth:`update_from_matrix` calls update the LLR normally.
         """
         self._calibrated = True
@@ -198,8 +198,7 @@ class IndexSPRT:
         """Recalibrate all pair SPRTs with new σ (and optionally new δ).
 
         Intended to be called once after the warmup phase with cross-index
-        parameters so that the magnitude-threshold δ is shared across all
-        six indexes (usually anchored to LCHI's observed CRI scale).
+        parameters so the magnitude-threshold δ is shared across all indexes.
         """
         self._calibrated = True  # suppress redundant _maybe_calibrate
         if new_delta is not None:

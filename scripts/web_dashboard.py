@@ -52,6 +52,7 @@ def _fresh_state() -> dict:
         "elapsed_time": 0.0,
         "index_keys": INDEX_KEYS,   # sent to frontend for labels
         "dataset_info": None,        # None = synthetic, dict = real dataset
+        "sprt_mode": "neutral",     # neutral | vlui_anchor
         "metrics": {
             k: {"isolation": [], "mean_cri": [], "timestamps": []}
             for k, _ in INDEX_KEYS
@@ -192,6 +193,7 @@ def get_metrics():
         "latencies":   {k: v[-200:] for k, v in state["latencies"].items()},
         "sprt":        state["sprt"],
         "dataset_info": state.get("dataset_info"),
+        "sprt_mode":   state.get("sprt_mode", "neutral"),
     }
     return jsonify(snapshot)
 
@@ -292,10 +294,17 @@ def start_benchmark():
     global state
     if state["running"]:
         return jsonify({"error": "Already running"}), 409
+
+    req = request.get_json(silent=True) or {}
+    sprt_mode = str(req.get("sprt_mode", "neutral")).strip().lower()
+    if sprt_mode not in {"neutral", "vlui_anchor"}:
+        return jsonify({"error": "Invalid sprt_mode. Use 'neutral' or 'vlui_anchor'"}), 400
+
     state = _fresh_state()
     state["dataset_info"] = _pending_dataset_info
-    Thread(target=_run_benchmark, args=(_pending_trace,), daemon=True).start()
-    return jsonify({"status": "started"})
+    state["sprt_mode"] = sprt_mode
+    Thread(target=_run_benchmark, args=(_pending_trace, sprt_mode), daemon=True).start()
+    return jsonify({"status": "started", "sprt_mode": sprt_mode})
 
 
 @app.route("/api/reset", methods=["POST"])
@@ -307,7 +316,7 @@ def reset():
 
 # ── Benchmark logic ───────────────────────────────────────────────────────────
 
-def _run_benchmark(trace=None):
+def _run_benchmark(trace=None, sprt_mode: str = "neutral"):
     global state
 
     state["running"] = True
@@ -390,25 +399,40 @@ def _run_benchmark(trace=None):
                 sd["llr_history"] = sprt_llr_histories[k][-50:]
                 state["sprt"][k] = sd
 
-            # ── Cross-calibrate SPRT after warmup (real datasets only) ──────
-            # After sprt_warmup windows we know LCHI's CRI scale.  Set
-            #   δ = 3 × median(|LCHI CRI|)   σ = δ
-            # so that observations *below* δ/2 (where LCHI typically sits)
-            # produce negative LLR (drift → Accept) while competitors whose
-            # CRI >> LCHI produce positive LLR (drift → Reject).
+            # ── Calibrate SPRT after warmup (real datasets only) ─────────────
+            # Two modes:
+            #   neutral     : pooled calibration across ALL index observations
+            #                 (default; no index-specific anchoring)
+            #   vlui_anchor : legacy research mode anchored to LCHI scale
             if is_real and not _sprt_xcal_done \
                     and (i + 1) == sprt_warmup * UPDATE_EVERY:
-                lchi_obs = sorted(
-                    x
-                    for p in sprts["lchi"].all_pairs
-                    for x in p.obs_history
-                )
-                if lchi_obs:
-                    lchi_median = lchi_obs[len(lchi_obs) // 2]
-                    delta_ref = max(0.10, lchi_median * 3.0)
-                    sigma_ref = delta_ref   # δ/σ = 1 → clean boundary scaling
-                    for sprt in sprts.values():
-                        sprt.recalibrate(sigma_ref, delta_ref)
+                if sprt_mode == "vlui_anchor":
+                    lchi_obs = sorted(
+                        x
+                        for p in sprts["lchi"].all_pairs
+                        for x in p.obs_history
+                    )
+                    if lchi_obs:
+                        lchi_median = lchi_obs[len(lchi_obs) // 2]
+                        delta_ref = max(0.10, lchi_median * 3.0)
+                        sigma_ref = delta_ref
+                        for sprt in sprts.values():
+                            sprt.recalibrate(sigma_ref, delta_ref)
+                else:
+                    pooled_obs = sorted(
+                        x
+                        for sprt in sprts.values()
+                        for p in sprt.all_pairs
+                        for x in p.obs_history
+                    )
+                    if pooled_obs:
+                        n = len(pooled_obs)
+                        p50 = pooled_obs[n // 2]
+                        p75 = pooled_obs[min(n - 1, (3 * n) // 4)]
+                        delta_ref = max(0.10, p50)
+                        sigma_ref = max(0.10, p75)
+                        for sprt in sprts.values():
+                            sprt.recalibrate(sigma_ref, delta_ref)
                 _sprt_xcal_done = True
 
             time.sleep(0.08)

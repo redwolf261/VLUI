@@ -254,6 +254,11 @@ button:active{transform:scale(.97);}
         <button class="btn-secondary" id="syntheticBtn" onclick="setMode('synthetic')" style="padding:5px 12px;font-size:11px;">🔢 Synthetic</button>
         <button class="btn-secondary" id="realBtn" onclick="setMode('real')" style="padding:5px 12px;font-size:11px;">📁 Real CSV</button>
       </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:11px;color:var(--muted);">SPRT:</span>
+        <button class="btn-secondary" id="sprtNeutralBtn" onclick="setSPRTMode('neutral')" style="padding:5px 10px;font-size:11px;">Neutral</button>
+        <button class="btn-secondary" id="sprtVluiBtn" onclick="setSPRTMode('vlui_anchor')" style="padding:5px 10px;font-size:11px;">VLUI-anchor</button>
+      </div>
       <span class="status idle" id="statusIndicator">
         <span class="status-dot"></span>
         <span id="statusText">Idle</span>
@@ -419,7 +424,7 @@ button:active{transform:scale(.97);}
 
   <!-- ── SPRT Falsifiability Panel ───────────────────────── -->
   <div class="card full-width" id="sprtSection">
-    <h2><span class="card-icon">🧪</span> SPRT — Live Falsifiability of Zero-CRI Claim &nbsp;<small style="font-size:11px;color:var(--muted);font-weight:400;">H₀: |CRI&#x2080;| ≤ ε &nbsp;·&nbsp; α = β = 5 % &nbsp;·&nbsp; δ = 0.05</small></h2>
+    <h2><span class="card-icon">🧪</span> SPRT — Live Falsifiability of Zero-CRI Claim &nbsp;<small style="font-size:11px;color:var(--muted);font-weight:400;">H₀: |CRI&#x2080;| ≤ ε &nbsp;·&nbsp; α = β = 5 % &nbsp;·&nbsp; mode: <span id="sprtModeLabel">neutral</span></small></h2>
     <div class="sprt-theorem" style="margin-bottom:16px;">
       <span style="font-size:24px;">🔬</span>
       <div>
@@ -466,6 +471,7 @@ button:active{transform:scale(.97);}
 <script>
 /* ── Config ────────────────────────────────────────────────── */
 let timer = null;  // polling interval handle
+let _sprtMode = 'neutral'; // 'neutral' | 'vlui_anchor'
 
 const INDEXES = [
   { key:'rtree',    label:'R-tree',         color:'#f87171', bg:'rgba(248,113,113,.55)' },
@@ -751,6 +757,8 @@ async function poll() {
   let d;
   try { d = await (await fetch('/api/metrics')).json(); } catch { return; }
 
+  if (d.sprt_mode) setSPRTMode(d.sprt_mode);
+
   const pct = d.progress || 0;
   document.getElementById('progressBar').style.width = pct+'%';
   document.getElementById('progressPct').textContent = pct.toFixed(1)+'%';
@@ -839,6 +847,22 @@ function setMode(mode) {
     // When switching back to synthetic, clear server-side pending trace
     fetch('/api/upload/clear', {method:'POST'}).catch(()=>{});
     resetChips();
+  }
+}
+
+function setSPRTMode(mode) {
+  _sprtMode = mode === 'vlui_anchor' ? 'vlui_anchor' : 'neutral';
+  const neutral = document.getElementById('sprtNeutralBtn');
+  const vlui = document.getElementById('sprtVluiBtn');
+  if (neutral && vlui) {
+    neutral.style.fontWeight = _sprtMode === 'neutral' ? '800' : '400';
+    vlui.style.fontWeight = _sprtMode === 'vlui_anchor' ? '800' : '400';
+    neutral.style.borderColor = _sprtMode === 'neutral' ? '#3b82f6' : '';
+    vlui.style.borderColor = _sprtMode === 'vlui_anchor' ? '#3b82f6' : '';
+  }
+  const modeLabel = document.getElementById('sprtModeLabel');
+  if (modeLabel) {
+    modeLabel.textContent = _sprtMode === 'neutral' ? 'neutral' : 'vlui_anchor';
   }
 }
 
@@ -931,7 +955,11 @@ function resetChips() {
 /* ── Controls ──────────────────────────────────────────────── */
 async function startBenchmark() {
   document.getElementById('startBtn').disabled = true;
-  await fetch('/api/start', {method:'POST'});
+  await fetch('/api/start', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({sprt_mode: _sprtMode}),
+  });
   if (timer) clearInterval(timer);
   timer = setInterval(poll, 400);
 }
@@ -961,6 +989,9 @@ async function resetBenchmark() {
   document.getElementById('statusText').textContent='Idle';
   // Keep the uploaded dataset selection intact — user can re-run with same data
 }
+
+// Initial mode state on first page load
+setSPRTMode('neutral');
 </script>
 </body>
 </html>
