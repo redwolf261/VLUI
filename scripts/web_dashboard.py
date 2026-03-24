@@ -5,11 +5,13 @@ Serves live metrics via JSON polling.
 
 from __future__ import annotations
 
+import copy
 import csv
 import io
+import os
 import sys
 from pathlib import Path
-from threading import Thread
+from threading import Lock, Thread
 import time
 
 from flask import Flask, render_template, jsonify, request
@@ -85,12 +87,21 @@ state = _fresh_state()
 # Pending real-dataset trace (set by /api/upload, consumed by /api/start)
 _pending_trace = None
 _pending_dataset_info: dict | None = None
+_state_lock = Lock()
+
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8 MiB
+MIN_POINTS = 50
+MAX_POINTS = 500_000
+MIN_QUERIES = 10
+MAX_QUERIES = 200_000
 
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 
 app = Flask(__name__, template_folder="templates")
-CORS(app)
+_cors_origins = os.getenv("VLUI_CORS_ORIGINS", "http://127.0.0.1:5000,http://localhost:5000")
+_allowed_origins = [o.strip() for o in _cors_origins.split(",") if o.strip()]
+CORS(app, resources={r"/api/*": {"origins": _allowed_origins}})
 
 SCALING_CURVE_PATH = PROJECT_ROOT / "output" / "scale" / "scaling_curve.csv"
 
@@ -179,29 +190,31 @@ def get_scaling_curve():
 
 @app.route("/api/metrics")
 def get_metrics():
-    snapshot = {
-        "running":     state["running"],
-        "done":        state["done"],
-        "progress":    state["progress"],
-        "current_op":  state["current_op"],
-        "total_ops":   state["total_ops"],
-        "elapsed_time":state["elapsed_time"],
-        "index_keys":  state["index_keys"],
-        "metrics":     state["metrics"],
-        "cri_matrix":  state["cri_matrix"],
-        "current":     state["current"],
-        "latencies":   {k: v[-200:] for k, v in state["latencies"].items()},
-        "sprt":        state["sprt"],
-        "dataset_info": state.get("dataset_info"),
-        "sprt_mode":   state.get("sprt_mode", "neutral"),
-    }
+    with _state_lock:
+        snapshot = {
+            "running":     state["running"],
+            "done":        state["done"],
+            "progress":    state["progress"],
+            "current_op":  state["current_op"],
+            "total_ops":   state["total_ops"],
+            "elapsed_time":state["elapsed_time"],
+            "index_keys":  copy.deepcopy(state["index_keys"]),
+            "metrics":     copy.deepcopy(state["metrics"]),
+            "cri_matrix":  copy.deepcopy(state["cri_matrix"]),
+            "current":     copy.deepcopy(state["current"]),
+            "latencies":   {k: v[-200:] for k, v in state["latencies"].items()},
+            "sprt":        copy.deepcopy(state["sprt"]),
+            "dataset_info": copy.deepcopy(state.get("dataset_info")),
+            "sprt_mode":   state.get("sprt_mode", "neutral"),
+        }
     return jsonify(snapshot)
 
 
 @app.route("/api/dataset_info")
 def get_dataset_info():
     """Return current pending dataset info (or None if synthetic)."""
-    return jsonify({"dataset_info": _pending_dataset_info})
+    with _state_lock:
+        return jsonify({"dataset_info": copy.deepcopy(_pending_dataset_info)})
 
 
 @app.route("/api/upload", methods=["POST"])
@@ -216,19 +229,39 @@ def upload_dataset():
     """
     global _pending_trace, _pending_dataset_info
 
-    if state["running"]:
-        return jsonify({"error": "Benchmark running — wait for it to finish"}), 409
+    with _state_lock:
+        if state["running"]:
+            return jsonify({"error": "Benchmark running — wait for it to finish"}), 409
 
     f = request.files.get("file")
     if f is None:
         return jsonify({"error": "No file uploaded"}), 400
 
-    fmt        = request.form.get("format", "auto").lower()
-    n_points   = int(request.form.get("n_points",  1000))
-    n_queries  = int(request.form.get("n_queries",  200))
+    fmt = request.form.get("format", "auto").lower()
+    if fmt not in {"auto", "porto", "nyc", "generic"}:
+        return jsonify({"error": "Invalid format. Use auto|porto|nyc|generic"}), 400
+
+    try:
+        n_points = int(request.form.get("n_points", 1000))
+        n_queries = int(request.form.get("n_queries", 200))
+    except ValueError:
+        return jsonify({"error": "n_points and n_queries must be integers"}), 400
+
+    if not (MIN_POINTS <= n_points <= MAX_POINTS):
+        return jsonify({"error": f"n_points must be in [{MIN_POINTS}, {MAX_POINTS}]"}), 400
+    if not (MIN_QUERIES <= n_queries <= MAX_QUERIES):
+        return jsonify({"error": f"n_queries must be in [{MIN_QUERIES}, {MAX_QUERIES}]"}), 400
+
     grid_dims  = (2, 2)  # matches benchmark
 
-    raw = f.read().decode("utf-8", errors="replace")
+    raw_bytes = f.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw_bytes) > MAX_UPLOAD_BYTES:
+        return jsonify({"error": f"Uploaded file too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)"}), 413
+
+    raw = raw_bytes.decode("utf-8", errors="replace")
+    if not raw.strip():
+        return jsonify({"error": "Uploaded file is empty"}), 400
+
     file_io = io.StringIO(raw)
 
     try:
@@ -262,19 +295,20 @@ def upload_dataset():
         trace = loader.generate()
         region_counts = loader.region_point_counts
 
-        _pending_trace = trace
-        _pending_dataset_info = {
-            "source": loader.source_name,
-            "n_points": n_points,
-            "n_queries": n_queries,
-            "total_ops": len(trace.operations),
-            "region_counts": region_counts,
-            "filename": f.filename,
-        }
+        with _state_lock:
+            _pending_trace = trace
+            _pending_dataset_info = {
+                "source": loader.source_name,
+                "n_points": n_points,
+                "n_queries": n_queries,
+                "total_ops": len(trace.operations),
+                "region_counts": region_counts,
+                "filename": f.filename,
+            }
 
         return jsonify({
             "status": "ready",
-            "dataset_info": _pending_dataset_info,
+            "dataset_info": copy.deepcopy(_pending_dataset_info),
         })
 
     except Exception as e:
@@ -284,25 +318,29 @@ def upload_dataset():
 @app.route("/api/upload/clear", methods=["POST"])
 def clear_upload():
     global _pending_trace, _pending_dataset_info
-    _pending_trace = None
-    _pending_dataset_info = None
+    with _state_lock:
+        _pending_trace = None
+        _pending_dataset_info = None
     return jsonify({"status": "cleared"})
 
 
 @app.route("/api/start", methods=["POST"])
 def start_benchmark():
     global state
-    if state["running"]:
-        return jsonify({"error": "Already running"}), 409
+    with _state_lock:
+        if state["running"]:
+            return jsonify({"error": "Already running"}), 409
 
     req = request.get_json(silent=True) or {}
     sprt_mode = str(req.get("sprt_mode", "neutral")).strip().lower()
     if sprt_mode not in {"neutral", "vlui_anchor"}:
         return jsonify({"error": "Invalid sprt_mode. Use 'neutral' or 'vlui_anchor'"}), 400
 
-    state = _fresh_state()
-    state["dataset_info"] = _pending_dataset_info
-    state["sprt_mode"] = sprt_mode
+    with _state_lock:
+        state = _fresh_state()
+        state["dataset_info"] = copy.deepcopy(_pending_dataset_info)
+        state["sprt_mode"] = sprt_mode
+
     Thread(target=_run_benchmark, args=(_pending_trace, sprt_mode), daemon=True).start()
     return jsonify({"status": "started", "sprt_mode": sprt_mode})
 
@@ -310,7 +348,10 @@ def start_benchmark():
 @app.route("/api/reset", methods=["POST"])
 def reset():
     global state
-    state = _fresh_state()
+    with _state_lock:
+        if state["running"]:
+            return jsonify({"error": "Cannot reset while benchmark is running"}), 409
+        state = _fresh_state()
     return jsonify({"status": "reset"})
 
 
@@ -319,8 +360,9 @@ def reset():
 def _run_benchmark(trace=None, sprt_mode: str = "neutral"):
     global state
 
-    state["running"] = True
-    state["done"] = False
+    with _state_lock:
+        state["running"] = True
+        state["done"] = False
     t0 = time.time()
 
     if trace is None:
@@ -334,7 +376,8 @@ def _run_benchmark(trace=None, sprt_mode: str = "neutral"):
         )
         trace = gen.generate()
     total = len(trace.operations)
-    state["total_ops"] = total
+    with _state_lock:
+        state["total_ops"] = total
 
     m = 4
     UPDATE_EVERY = 30
@@ -352,7 +395,8 @@ def _run_benchmark(trace=None, sprt_mode: str = "neutral"):
     # SPRT: H0=zero CRI, delta=0.05 elasticity, sigma=0.10, alpha=beta=0.05
     # For real-world data the CRI magnitudes differ from synthetic; use a
     # warmup period so sigma is auto-calibrated from the actual distribution.
-    is_real = state.get("dataset_info") is not None
+    with _state_lock:
+        is_real = state.get("dataset_info") is not None
     sprt_warmup = 5 if is_real else 0
     sprts = {k: IndexSPRT(n_regions=m, delta=0.05, sigma=0.10, alpha=0.05, beta=0.05,
                           warmup_windows=sprt_warmup)
@@ -369,35 +413,40 @@ def _run_benchmark(trace=None, sprt_mode: str = "neutral"):
         elif op.op_type == OpType.RANGE_QUERY and op.query_region is not None:
             for k, idx in indexes.items():
                 _, s = idx.range_query(op.query_region)
-                state["latencies"][k].append(s.latency_ns)
+                with _state_lock:
+                    state["latencies"][k].append(s.latency_ns)
                 measurers[k].record_query(op.region_id, op.timestamp, s.latency_ns)
 
         if (i + 1) % UPDATE_EVERY == 0 or (i + 1) == total:
             elapsed = time.time() - t0
-            state["current_op"]   = i + 1
-            state["progress"]     = (i + 1) / total * 100
-            state["elapsed_time"] = elapsed
+            with _state_lock:
+                state["current_op"] = i + 1
+                state["progress"] = (i + 1) / total * 100
+                state["elapsed_time"] = elapsed
 
             for k in indexes:
                 cri = measurers[k].compute_cri()
-                state["metrics"][k]["isolation"].append(cri.isolation_score)
-                state["metrics"][k]["mean_cri"].append(cri.mean_cross_cri)
-                state["metrics"][k]["timestamps"].append(elapsed)
                 mat = cri.cri_matrix.tolist()
-                state["cri_matrix"][k] = mat
-                lats = state["latencies"][k]
+                with _state_lock:
+                    lats = list(state["latencies"][k])
                 ml = sum(lats) / len(lats) if lats else 0.0
-                state["current"][k] = {
-                    "isolation":       cri.isolation_score,
-                    "mean_cri":        cri.mean_cross_cri,
-                    "mean_latency_ns": ml,
-                }
+                with _state_lock:
+                    state["metrics"][k]["isolation"].append(cri.isolation_score)
+                    state["metrics"][k]["mean_cri"].append(cri.mean_cross_cri)
+                    state["metrics"][k]["timestamps"].append(elapsed)
+                    state["cri_matrix"][k] = mat
+                    state["current"][k] = {
+                        "isolation": cri.isolation_score,
+                        "mean_cri": cri.mean_cross_cri,
+                        "mean_latency_ns": ml,
+                    }
                 # Feed CRI matrix to SPRT
                 sprts[k].update_from_matrix(mat)
                 sprt_llr_histories[k].append(round(sprts[k].mean_llr, 4))
                 sd = sprts[k].to_dict()
                 sd["llr_history"] = sprt_llr_histories[k][-50:]
-                state["sprt"][k] = sd
+                with _state_lock:
+                    state["sprt"][k] = sd
 
             # ── Calibrate SPRT after warmup (real datasets only) ─────────────
             # Two modes:
@@ -437,8 +486,9 @@ def _run_benchmark(trace=None, sprt_mode: str = "neutral"):
 
             time.sleep(0.08)
 
-    state["running"] = False
-    state["done"]    = True
+    with _state_lock:
+        state["running"] = False
+        state["done"] = True
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

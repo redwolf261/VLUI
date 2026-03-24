@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VLUI Evaluator View</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+    :root {
+      --bg: #f4efe6;
+      --bg-2: #efe7d7;
+      --card: #fffaf1;
+      --ink: #17212b;
+      --muted: #5d6b78;
+      --line: #d5ccbd;
+      --accent: #005f73;
+      --accent-2: #ee9b00;
+      --accent-3: #bb3e03;
+      --ok: #2a9d8f;
+      --danger: #ae2012;
+      --radius: 14px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'IBM Plex Sans', sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 10%, rgba(238, 155, 0, 0.10), transparent 28%),
+        radial-gradient(circle at 90% 20%, rgba(0, 95, 115, 0.12), transparent 30%),
+        linear-gradient(180deg, var(--bg), var(--bg-2));
+      min-height: 100vh;
+      padding: 26px;
+    }
+
+    .container {
+      max-width: 1500px;
+      margin: 0 auto;
+      display: grid;
+      gap: 18px;
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: 0 14px 30px rgba(23, 33, 43, 0.06);
+    }
+
+    .hero {
+      padding: 22px;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .title-wrap h1 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 28px;
+      letter-spacing: -0.02em;
+    }
+
+    .title-wrap p {
+      color: var(--muted);
+      margin-top: 6px;
+      font-size: 14px;
+    }
+
+    .nav-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 8px 14px;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .btn.primary {
+      border-color: transparent;
+      background: linear-gradient(135deg, var(--accent), #0a9396);
+      color: #fff;
+    }
+
+    .chips {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(4, minmax(150px, 1fr));
+      padding: 0 22px 20px;
+    }
+
+    .chip {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+    }
+
+    .chip .k {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .chip .v {
+      margin-top: 4px;
+      font-size: 18px;
+      font-weight: 700;
+      font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(2, minmax(260px, 1fr));
+    }
+
+    .card {
+      padding: 16px;
+    }
+
+    .card h2 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 18px;
+      margin-bottom: 10px;
+    }
+
+    .chart-wrap {
+      height: 320px;
+    }
+
+    .full {
+      grid-column: 1 / -1;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      background: #f8f3e9;
+    }
+
+    tbody tr:hover td {
+      background: #fff8ea;
+    }
+
+    .pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(42, 157, 143, 0.14);
+      color: #156c63;
+    }
+
+    .pill.rej {
+      background: rgba(174, 32, 18, 0.14);
+      color: var(--danger);
+    }
+
+    .winners {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .winner {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fff;
+    }
+
+    .winner .n {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 18px;
+      margin-bottom: 8px;
+      color: var(--accent);
+    }
+
+    .winner p {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .winner strong { color: var(--ink); }
+
+    .muted { color: var(--muted); }
+
+    @media (max-width: 980px) {
+      .chips { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .grid { grid-template-columns: 1fr; }
+      .chart-wrap { height: 280px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <section class="panel hero">
+      <div class="title-wrap">
+        <h1>VLUI Evaluator Frontend</h1>
+        <p>All scaling outputs in one place: isolation, mean CRI, latency, SPRT verdicts, and per-n winners.</p>
+      </div>
+      <div class="nav-actions">
+        <a class="btn" href="/">Open Live Dashboard</a>
+        <a class="btn primary" href="/evaluator">Refresh Evaluator View</a>
+      </div>
+      <div class="chips full" style="padding:0; width:100%; margin-top: 8px;">
+        <div class="chip"><div class="k">Rows</div><div class="v" id="rowsCount">-</div></div>
+        <div class="chip"><div class="k">N Values</div><div class="v" id="nCount">-</div></div>
+        <div class="chip"><div class="k">Indexes</div><div class="v" id="idxCount">-</div></div>
+        <div class="chip"><div class="k">Generated</div><div class="v" id="generatedAt" style="font-size:14px;">-</div></div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="panel card">
+        <h2>Isolation vs Dataset Size</h2>
+        <div class="chart-wrap"><canvas id="isolationChart"></canvas></div>
+      </article>
+      <article class="panel card">
+        <h2>Mean CRI vs Dataset Size</h2>
+        <div class="chart-wrap"><canvas id="criChart"></canvas></div>
+      </article>
+      <article class="panel card full">
+        <h2>Latency vs Dataset Size (log scale)</h2>
+        <div class="chart-wrap"><canvas id="latencyChart"></canvas></div>
+      </article>
+      <article class="panel card full">
+        <h2>Metric Winners by n</h2>
+        <div class="winners" id="winnersGrid"></div>
+      </article>
+      <article class="panel card full">
+        <h2>Full Scaling Table</h2>
+        <div style="overflow:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>n</th>
+                <th>Index</th>
+                <th>Isolation</th>
+                <th>Mean CRI</th>
+                <th>Mean Latency (ns)</th>
+                <th>SPRT</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+          <p id="emptyState" class="muted" style="display:none; margin-top: 10px;">
+            No scaling data found. Run scripts/collect_scaling_curve.py first.
+          </p>
+        </div>
+      </article>
+    </section>
+  </div>
+
+  <script>
+    const palette = [
+      '#005f73', '#0a9396', '#ee9b00', '#ca6702', '#bb3e03', '#9b2226', '#3a86ff', '#5f0f40'
+    ];
+
+    let isolationChart;
+    let criChart;
+    let latencyChart;
+
+    function fmtNum(v, d = 4) {
+      return Number(v).toFixed(d);
+    }
+
+    function fmtInt(v) {
+      return Number(v).toLocaleString();
+    }
+
+    function destroyCharts() {
+      [isolationChart, criChart, latencyChart].forEach(c => {
+        if (c) c.destroy();
+      });
+    }
+
+    function buildSeries(rows, nValues, field) {
+      const byLabel = new Map();
+      for (const row of rows) {
+        if (!byLabel.has(row.label)) byLabel.set(row.label, new Map());
+        byLabel.get(row.label).set(row.n_points, Number(row[field]));
+      }
+
+      const labels = Array.from(byLabel.keys());
+      return labels.map((label, i) => ({
+        label,
+        data: nValues.map(n => byLabel.get(label).get(n) ?? null),
+        borderColor: palette[i % palette.length],
+        backgroundColor: palette[i % palette.length],
+        tension: 0.25,
+        borderWidth: 2.2,
+        pointRadius: 3,
+      }));
+    }
+
+    function renderCharts(rows, nValues) {
+      destroyCharts();
+      const xLabels = nValues.map(v => v.toString());
+
+      const common = {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 12, usePointStyle: true } }
+        },
+        scales: {
+          x: { title: { display: true, text: 'n_points' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+          y: { grid: { color: 'rgba(0,0,0,0.05)' } }
+        }
+      };
+
+      isolationChart = new Chart(document.getElementById('isolationChart'), {
+        type: 'line',
+        data: { labels: xLabels, datasets: buildSeries(rows, nValues, 'isolation') },
+        options: {
+          ...common,
+          plugins: { ...common.plugins, title: { display: false } },
+          scales: {
+            ...common.scales,
+            y: { ...common.scales.y, title: { display: true, text: 'Isolation (lower is better)' } }
+          }
+        }
+      });
+
+      criChart = new Chart(document.getElementById('criChart'), {
+        type: 'line',
+        data: { labels: xLabels, datasets: buildSeries(rows, nValues, 'mean_cri') },
+        options: {
+          ...common,
+          scales: {
+            ...common.scales,
+            y: { ...common.scales.y, title: { display: true, text: 'Mean CRI (lower is better)' } }
+          }
+        }
+      });
+
+      latencyChart = new Chart(document.getElementById('latencyChart'), {
+        type: 'line',
+        data: { labels: xLabels, datasets: buildSeries(rows, nValues, 'mean_lat_ns') },
+        options: {
+          ...common,
+          scales: {
+            ...common.scales,
+            y: {
+              ...common.scales.y,
+              type: 'logarithmic',
+              title: { display: true, text: 'Latency (ns, log scale)' }
+            }
+          }
+        }
+      });
+    }
+
+    function renderTable(rows) {
+      const body = document.getElementById('resultsBody');
+      const empty = document.getElementById('emptyState');
+      body.innerHTML = '';
+
+      if (!rows.length) {
+        empty.style.display = 'block';
+        return;
+      }
+      empty.style.display = 'none';
+
+      for (const row of rows) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${fmtInt(row.n_points)}</td>
+          <td>${row.label}</td>
+          <td>${fmtNum(row.isolation)}</td>
+          <td>${fmtNum(row.mean_cri)}</td>
+          <td>${fmtInt(Math.round(row.mean_lat_ns))}</td>
+          <td><span class="pill ${row.sprt_verdict === 'REJECT_H0' ? 'rej' : ''}">${row.sprt_verdict}</span></td>
+        `;
+        body.appendChild(tr);
+      }
+    }
+
+    function renderWinners(winners) {
+      const wrap = document.getElementById('winnersGrid');
+      wrap.innerHTML = '';
+
+      for (const w of winners) {
+        const card = document.createElement('div');
+        card.className = 'winner';
+        card.innerHTML = `
+          <div class="n">n = ${fmtInt(w.n_points)}</div>
+          <p>Best Isolation: <strong>${w.best_isolation}</strong></p>
+          <p>Best Mean CRI: <strong>${w.best_cri}</strong></p>
+          <p>Best Latency: <strong>${w.best_latency}</strong></p>
+        `;
+        wrap.appendChild(card);
+      }
+    }
+
+    async function loadEvaluatorData() {
+      const res = await fetch('/api/scaling_curve');
+      const data = await res.json();
+
+      const rows = data.rows || [];
+      const nValues = data.n_values || [];
+      const indexes = data.index_labels || [];
+
+      document.getElementById('rowsCount').textContent = fmtInt(rows.length);
+      document.getElementById('nCount').textContent = fmtInt(nValues.length);
+      document.getElementById('idxCount').textContent = fmtInt(indexes.length);
+      document.getElementById('generatedAt').textContent = data.generated_at || 'Unavailable';
+
+      renderTable(rows);
+      renderWinners(data.winners || []);
+
+      if (rows.length && nValues.length) {
+        renderCharts(rows, nValues);
+      }
+    }
+
+    loadEvaluatorData().catch(err => {
+      console.error(err);
+      document.getElementById('emptyState').style.display = 'block';
+      document.getElementById('emptyState').textContent = 'Failed to load evaluator data.';
+    });
+  </script>
+</body>
+</html>

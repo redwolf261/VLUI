@@ -254,19 +254,24 @@ class RealDatasetLoader:
                     continue
                 origin = poly[0]
                 raw_coords.append((origin.lon, origin.lat))
-                if len(raw_coords) >= n_points * 10:   # read ahead buffer
-                    break
         finally:
             if close_after:
                 fh.close()
 
         coords_norm = _clip_and_normalize(raw_coords, bounds)
-        if len(coords_norm) < n_points:
+
+        MIN_VALID = 50
+        if len(coords_norm) < MIN_VALID:
             raise ValueError(
                 f"Only {len(coords_norm)} valid Porto coordinates found in "
-                f"bounds {bounds}. Need at least {n_points}. "
+                f"bounds {bounds}. Need at least {MIN_VALID}. "
                 f"Check the file or supply different city_bounds."
             )
+
+        # Auto-downscale if the file has fewer points than requested
+        if len(coords_norm) < n_points:
+            n_points  = len(coords_norm)
+            n_queries = max(10, min(n_queries, n_points // 5))
 
         return cls(
             coords_norm,
@@ -275,7 +280,7 @@ class RealDatasetLoader:
             grid_dims=grid_dims,
             query_radius=query_radius,
             seed=seed,
-            source_name=f"porto_taxi (n={n_points})",
+            source_name=f"porto_taxi (n={n_points}, q={n_queries})",
             bounds=bounds,
         )
 
